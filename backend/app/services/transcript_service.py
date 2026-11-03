@@ -27,6 +27,7 @@ Key Functions:
 
 import os
 import tempfile
+import threading
 from typing import Optional, Tuple
 
 from app.config import settings, WHISPER_MODEL, TRANSCRIPTION_LANGUAGE
@@ -338,6 +339,28 @@ def _transcribe_hybrid(file_path: str) -> str:
 # Faster-Whisper (RECOMMENDED - No API Key!)
 # ===========================================
 
+# Loading a Whisper model takes seconds and hundreds of MB, so load each size
+# once per process and reuse it for every request.
+_whisper_models = {}
+_whisper_models_lock = threading.Lock()
+
+
+def _get_whisper_model(model_size: str):
+    """Return a cached Faster-Whisper model, loading it on first use."""
+    with _whisper_models_lock:
+        model = _whisper_models.get(model_size)
+        if model is None:
+            from faster_whisper import WhisperModel
+            print(f"[Faster-Whisper] Loading '{model_size}' model (first use)...")
+            model = WhisperModel(
+                model_size,
+                device="cpu",  # Use "cuda" if you have GPU
+                compute_type="int8"  # Fast and efficient
+            )
+            _whisper_models[model_size] = model
+        return model
+
+
 def _transcribe_faster_whisper(file_path: str) -> str:
     """
     Transcribe audio using Faster-Whisper.
@@ -356,21 +379,12 @@ def _transcribe_faster_whisper(file_path: str) -> str:
         str: Transcribed text
     """
     try:
-        from faster_whisper import WhisperModel
-        
-        print("[Faster-Whisper] Loading model...")
-        
         # Model sizes: tiny, base, small, medium, large-v2, large-v3
         # Larger = more accurate but slower
         # "small" is a good balance of speed and accuracy
         model_size = getattr(settings, 'whisper_model_size', 'small')
         
-        # Use CPU with int8 for efficiency, or GPU if available
-        model = WhisperModel(
-            model_size,
-            device="cpu",  # Use "cuda" if you have GPU
-            compute_type="int8"  # Fast and efficient
-        )
+        model = _get_whisper_model(model_size)
         
         print(f"[Faster-Whisper] Transcribing with '{model_size}' model...")
         
