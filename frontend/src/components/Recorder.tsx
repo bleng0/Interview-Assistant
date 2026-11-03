@@ -263,8 +263,8 @@ function Recorder({
       const mimeType = MediaRecorder.isTypeSupported("audio/webm")
         ? "audio/webm"
         : MediaRecorder.isTypeSupported("audio/mp4")
-        ? "audio/mp4"
-        : "audio/ogg";
+          ? "audio/mp4"
+          : "audio/ogg";
 
       const audioStream = new MediaStream(stream.getAudioTracks());
       const mediaRecorder = new MediaRecorder(audioStream, { mimeType });
@@ -386,19 +386,19 @@ function Recorder({
           visual_confidence: videoMetrics.overallConfidence,
         };
       }
-      
+
       // Upload audio in background (don't await - fire and forget)
       if (audioChunksRef.current.length > 0) {
         const audioBlob = new Blob(audioChunksRef.current, { type: "audio/webm" });
         uploadAudioInBackground(audioBlob, feedback.attempt_id);
       }
-      
+
       onRecordingComplete(feedback);
       toast.dismiss(toastId);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : "Failed to analyze recording";
       setError(errorMessage);
-      toast.error("Analysis failed", { 
+      toast.error("Analysis failed", {
         id: toastId,
         description: errorMessage
       });
@@ -414,7 +414,7 @@ function Recorder({
       console.log("No attempt ID, skipping audio upload");
       return;
     }
-    
+
     try {
       const formData = new FormData();
       formData.append("audio", audioBlob, `${sessionId}_q${questionOrder}.webm`);
@@ -422,12 +422,12 @@ function Recorder({
       formData.append("session_id", sessionId);
       formData.append("question_order", questionOrder.toString());
       formData.append("attempt_id", attemptId.toString());
-      
+
       const response = await fetch("/api/v1/upload_attempt_audio", {
         method: "POST",
         body: formData,
       });
-      
+
       if (response.ok) {
         console.log("Audio uploaded successfully for attempt", attemptId);
       } else {
@@ -535,7 +535,7 @@ function Recorder({
             <div className={`video-container rounded-2xl overflow-hidden shadow-lg ${recordingState === 'recording' ? 'ring-2 ring-red-500' : ''}`}>
               {(recordingState === "recording" ||
                 recordingState === "stopped") &&
-              localVideoStream ? (
+                localVideoStream ? (
                 <VideoAnalyzer
                   videoStream={localVideoStream}
                   isAnalyzing={recordingState === "recording"}
@@ -625,41 +625,41 @@ function Recorder({
 
               {recordingState === "stopped" && (
                 <div className="control-group flex flex-col gap-3">
-                   {/* Primary Actions Grid */}
-                   <div className="grid grid-cols-2 gap-3">
-                      <button
-                        className="control-btn submit-btn py-3 rounded-xl bg-gradient-to-r from-primary-600 to-secondary-600 hover:from-primary-700 hover:to-secondary-700 text-white font-bold shadow-lg shadow-primary-500/20 transition-all flex items-center justify-center gap-2"
-                        onClick={submitRecording}
-                        disabled={!transcript.trim() && !interimTranscript && inputMode === 'audio'}
-                      >
-                        <span className="btn-icon">
-                          {isLoading ? <LoadingSpinner size="sm" className="text-white" /> : <Sparkles className="w-5 h-5" />}
-                        </span>
-                        {isLoading ? "Analyzing..." : "Submit Answer"}
-                      </button>
+                  {/* Primary Actions Grid */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <button
+                      className="control-btn submit-btn py-3 rounded-xl bg-gradient-to-r from-primary-600 to-secondary-600 hover:from-primary-700 hover:to-secondary-700 text-white font-bold shadow-lg shadow-primary-500/20 transition-all flex items-center justify-center gap-2"
+                      onClick={submitRecording}
+                      disabled={!transcript.trim() && !interimTranscript && inputMode === 'audio'}
+                    >
+                      <span className="btn-icon">
+                        {isLoading ? <LoadingSpinner size="sm" className="text-white" /> : <Sparkles className="w-5 h-5" />}
+                      </span>
+                      {isLoading ? "Analyzing..." : "Submit Answer"}
+                    </button>
 
-                      <button
-                        className="control-btn retry-btn py-3 rounded-xl bg-stone-100 dark:bg-surface-700 hover:bg-stone-200 dark:hover:bg-surface-600 text-stone-700 dark:text-surface-200 font-medium transition-all flex items-center justify-center gap-2"
-                        onClick={resetRecording}
-                      >
-                         <RotateCcw className="w-4 h-4" />
-                         Retry
-                      </button>
-                   </div>
-                   
-                   {/* Text Input Toggle */}
-                   {inputMode !== 'text' && (
-                     <button
-                        className="w-full py-3 rounded-xl border border-stone-200 dark:border-surface-600 text-stone-600 dark:text-surface-300 hover:bg-stone-50 dark:hover:bg-surface-800 text-sm font-bold transition-all flex items-center justify-center gap-2 shadow-sm hover:shadow-md"
-                        onClick={() => {
-                          setInputMode('text');
-                          // If current transcript exists, keep it for editing
-                        }}
-                     >
-                       <Keyboard className="w-4 h-4" />
-                       Switch to Text Input / Edit Answer
-                     </button>
-                   )}
+                    <button
+                      className="control-btn retry-btn py-3 rounded-xl bg-stone-100 dark:bg-surface-700 hover:bg-stone-200 dark:hover:bg-surface-600 text-stone-700 dark:text-surface-200 font-medium transition-all flex items-center justify-center gap-2"
+                      onClick={resetRecording}
+                    >
+                      <RotateCcw className="w-4 h-4" />
+                      Retry
+                    </button>
+                  </div>
+
+                  {/* Text Input Toggle */}
+                  {inputMode !== 'text' && (
+                    <button
+                      className="w-full py-3 rounded-xl border border-stone-200 dark:border-surface-600 text-stone-600 dark:text-surface-300 hover:bg-stone-50 dark:hover:bg-surface-800 text-sm font-bold transition-all flex items-center justify-center gap-2 shadow-sm hover:shadow-md"
+                      onClick={() => {
+                        setInputMode('text');
+                        // If current transcript exists, keep it for editing
+                      }}
+                    >
+                      <Keyboard className="w-4 h-4" />
+                      Switch to Text Input / Edit Answer
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -679,7 +679,7 @@ function Recorder({
             <div className="question-card">
               <div className="flex justify-between items-start mb-2">
                 <h4>Interview Question</h4>
-                <button 
+                <button
                   onClick={speakQuestion}
                   className="p-1.5 rounded-full hover:bg-stone-100 dark:hover:bg-surface-700 text-stone-500 dark:text-surface-400 hover:text-primary-500 dark:hover:text-primary-400 transition-colors"
                   title="Read Question Aloud"
@@ -723,19 +723,18 @@ function Recorder({
                 )}
               </div>
               <div
-                className={`transcript-content ${
-                  recordingState === "recording" ? "live" : ""
-                }`}
+                className={`transcript-content ${recordingState === "recording" ? "live" : ""
+                  }`}
               >
                 {fullTranscript || (
                   <span className="transcript-placeholder">
                     {recordingState === "recording"
                       ? "Start speaking... Your words will appear here in real-time."
                       : recordingState === "idle"
-                      ? inputMode === 'text' 
-                        ? "Type your answer below..." 
-                        : 'Click "Start Recording" or switch to text mode.'
-                      : "No answer provided yet."}
+                        ? inputMode === 'text'
+                          ? "Type your answer below..."
+                          : 'Click "Start Recording" or switch to text mode.'
+                        : "No answer provided yet."}
                   </span>
                 )}
                 {recordingState === "recording" && interimTranscript && (
@@ -772,45 +771,45 @@ function Recorder({
             {/* Text Input Logic */}
             {inputMode === "text" && (
               <div className="mt-4 space-y-3 animation-fade-in">
-                 <div className="p-4 bg-white dark:bg-surface-800 rounded-xl border border-stone-200 dark:border-surface-700 shadow-sm">
-                   <div className="flex justify-between items-center mb-2">
-                     <h4 className="text-sm font-semibold text-stone-700 dark:text-white flex items-center gap-2">
-                       <Keyboard className="w-4 h-4 text-primary-500" />
-                       Your Answer
-                     </h4>
-                     {recordingState === 'idle' && (
-                        <button 
-                          onClick={() => setInputMode('audio')}
-                          className="text-xs text-primary-500 hover:text-primary-600 underline"
-                        >
-                          Switch to Audio
-                        </button>
-                     )}
-                   </div>
-                   <textarea
-                     value={transcript}
-                     onChange={(e) => setTranscript(e.target.value)}
-                     placeholder="Type your answer here..."
-                     className="w-full h-48 p-3 rounded-lg bg-stone-50 dark:bg-surface-900 border border-stone-200 dark:border-surface-600 text-stone-700 dark:text-surface-200 text-sm resize-none focus:ring-2 focus:ring-primary-500/50 focus:border-primary-500 transition-all"
-                   />
-                   <div className="flex justify-end mt-2">
-                     <span className="text-xs text-stone-500 dark:text-surface-400">
-                       {transcript.split(/\s+/).filter(w => w).length} words
-                     </span>
-                   </div>
-                 </div>
-                 
-                 {/* Submit Button for Text Mode (if not handling in main controls) */}
-                 {recordingState === 'idle' && (
-                    <button
-                      className="w-full py-3 rounded-xl bg-primary-600 hover:bg-primary-700 text-white font-bold shadow-lg shadow-primary-500/20 transition-all flex items-center justify-center gap-2"
-                      onClick={submitRecording}
-                      disabled={!transcript.trim() || isLoading}
-                    >
-                      {isLoading ? <LoadingSpinner size="sm" className="text-white" /> : <Sparkles className="w-5 h-5" />}
-                      {isLoading ? "Analyzing..." : "Submit Text Answer"}
-                    </button>
-                 )}
+                <div className="p-4 bg-white dark:bg-surface-800 rounded-xl border border-stone-200 dark:border-surface-700 shadow-sm">
+                  <div className="flex justify-between items-center mb-2">
+                    <h4 className="text-sm font-semibold text-stone-700 dark:text-white flex items-center gap-2">
+                      <Keyboard className="w-4 h-4 text-primary-500" />
+                      Your Answer
+                    </h4>
+                    {recordingState === 'idle' && (
+                      <button
+                        onClick={() => setInputMode('audio')}
+                        className="text-xs text-primary-500 hover:text-primary-600 underline"
+                      >
+                        Switch to Audio
+                      </button>
+                    )}
+                  </div>
+                  <textarea
+                    value={transcript}
+                    onChange={(e) => setTranscript(e.target.value)}
+                    placeholder="Type your answer here..."
+                    className="w-full h-48 p-3 rounded-lg bg-stone-50 dark:bg-surface-900 border border-stone-200 dark:border-surface-600 text-stone-700 dark:text-surface-200 text-sm resize-none focus:ring-2 focus:ring-primary-500/50 focus:border-primary-500 transition-all"
+                  />
+                  <div className="flex justify-end mt-2">
+                    <span className="text-xs text-stone-500 dark:text-surface-400">
+                      {transcript.split(/\s+/).filter(w => w).length} words
+                    </span>
+                  </div>
+                </div>
+
+                {/* Submit Button for Text Mode (if not handling in main controls) */}
+                {recordingState === 'idle' && (
+                  <button
+                    className="w-full py-3 rounded-xl bg-primary-600 hover:bg-primary-700 text-white font-bold shadow-lg shadow-primary-500/20 transition-all flex items-center justify-center gap-2"
+                    onClick={submitRecording}
+                    disabled={!transcript.trim() || isLoading}
+                  >
+                    {isLoading ? <LoadingSpinner size="sm" className="text-white" /> : <Sparkles className="w-5 h-5" />}
+                    {isLoading ? "Analyzing..." : "Submit Text Answer"}
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -831,7 +830,7 @@ function Recorder({
                 <Star className="w-4 h-4 inline mr-2 text-yellow-500" />
                 Use the STAR Method
               </h4>
-<style>{`
+              <style>{`
   /* Hide scrollbars for all recorder columns and scrollable areas */
   .recorder-column .column-body,
   .transcript-content,
