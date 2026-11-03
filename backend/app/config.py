@@ -81,9 +81,14 @@ class Settings(BaseSettings):
     # CORS Configuration
     cors_origins: str = "http://localhost:5173,http://localhost:3000"
     
-    # Debug Mode
-    debug: bool = True
-    
+    # Debug Mode (off by default; set DEBUG=true in .env for local development).
+    # When off, /docs and /redoc are disabled and error details are hidden.
+    debug: bool = False
+
+    # Admin users (comma-separated emails) allowed to manage the question pool.
+    # Empty = no admins, so admin-only endpoints are closed.
+    admin_emails: str = ""
+
     class Config:
         env_file = ".env"
         extra = "ignore"
@@ -91,7 +96,11 @@ class Settings(BaseSettings):
     def get_cors_origins(self) -> List[str]:
         """Parse CORS origins from comma-separated string."""
         return [origin.strip() for origin in self.cors_origins.split(",")]
-    
+
+    def get_admin_emails(self) -> List[str]:
+        """Parse admin emails from comma-separated string (lower-cased)."""
+        return [e.strip().lower() for e in self.admin_emails.split(",") if e.strip()]
+
     def get_all_api_keys(self) -> List[str]:
         """
         Get all configured Gemini API keys.

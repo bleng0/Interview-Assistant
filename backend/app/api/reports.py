@@ -11,11 +11,12 @@ Author: AI Interview Assistant Team
 
 from typing import Optional
 from datetime import datetime
-from fastapi import APIRouter, HTTPException, Query, Response
+from fastapi import APIRouter, HTTPException, Query, Response, Depends
 from fastapi.responses import StreamingResponse
 import io
 
 from app.logging_config import get_logger
+from app.services.auth_service import current_user_id
 from app.services.report_generation_service import (
     generate_interview_report_data,
     generate_pdf_html,
@@ -37,7 +38,7 @@ router = APIRouter(prefix="/reports", tags=["Reports"])
 
 @router.post("/generate")
 async def generate_report(
-    user_id: str = Query(..., description="User ID"),
+    user_id: str = Depends(current_user_id),
     session_id: Optional[str] = Query(default=None, description="Session ID for session report"),
     attempt_ids: Optional[str] = Query(default=None, description="Comma-separated attempt IDs"),
     report_type: str = Query(default="session", description="Type: session, custom, summary")
@@ -56,7 +57,14 @@ async def generate_report(
     3. Downloaded as PDF (if server-side PDF generation available)
     """
     logger.info(f"Generating {report_type} report for user {user_id}")
-    
+
+    # A report can only be attached to the caller's own session
+    if session_id:
+        from app.services.supabase_db import get_session_by_id
+        session = await get_session_by_id(session_id)
+        if not session or session.get("user_id") != user_id:
+            raise HTTPException(status_code=404, detail="Session not found")
+
     # Get attempts for the report
     if attempt_ids:
         # Get specific attempts
@@ -115,7 +123,7 @@ async def generate_report(
 @router.get("/download/{report_id}")
 async def download_report_pdf(
     report_id: str,
-    user_id: str = Query(..., description="User ID for authorization")
+    user_id: str = Depends(current_user_id)
 ):
     """
     Download a report as PDF.
@@ -173,7 +181,7 @@ async def download_report_pdf(
 
 @router.post("/generate-pdf")
 async def generate_pdf_from_data(
-    user_id: str = Query(..., description="User ID"),
+    user_id: str = Depends(current_user_id),
     attempt_ids: Optional[str] = Query(default=None, description="Comma-separated attempt IDs")
 ):
     """
@@ -238,7 +246,7 @@ async def generate_pdf_from_data(
 
 @router.get("/list")
 async def list_user_reports(
-    user_id: str = Query(..., description="User ID"),
+    user_id: str = Depends(current_user_id),
     limit: int = Query(default=10, ge=1, le=50)
 ):
     """
@@ -268,7 +276,7 @@ async def list_user_reports(
 @router.get("/{report_id}")
 async def get_report_details(
     report_id: str,
-    user_id: str = Query(..., description="User ID for authorization")
+    user_id: str = Depends(current_user_id)
 ):
     """
     Get full report details.
@@ -317,7 +325,7 @@ async def get_report_details(
 
 @router.get("/summary/quick")
 async def get_quick_summary(
-    user_id: str = Query(..., description="User ID"),
+    user_id: str = Depends(current_user_id),
     days: int = Query(default=7, ge=1, le=90)
 ):
     """

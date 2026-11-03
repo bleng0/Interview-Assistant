@@ -67,6 +67,7 @@ from app.services.transcript_service import transcribe_audio
 from app.services.ml_engine import score_answer, score_resume, score_answer_by_keywords
 from app.services.storage_service import upload_resume_file, upload_resume_bytes, upload_audio_file
 from app.logging_config import get_logger
+from app.services.auth_service import require_auth, require_admin, ensure_same_user
 
 logger = get_logger(__name__)
 
@@ -238,116 +239,6 @@ async def get_public_stats():
 
 
 
-@router.get("/debug/db")
-async def debug_database():
-    """
-    Debug endpoint to test Supabase connection and database writes.
-    
-    This endpoint:
-    1. Tests connection to Supabase
-    2. Tries to read from questions table
-    3. Performs a test insert to attempts table
-    4. Reports detailed status
-    
-    Use this to diagnose database connectivity issues.
-    """
-    from app.models.supabase_client import get_supabase, test_supabase_connection
-    from app.config import settings
-    
-    results = {
-        "timestamp": datetime.now().isoformat(),
-        "checks": {}
-    }
-    
-    # Check 1: Configuration
-    results["checks"]["config"] = {
-        "supabase_url_set": bool(settings.supabase_url),
-        "supabase_url": settings.supabase_url[:50] + "..." if settings.supabase_url else None,
-        "anon_key_set": bool(settings.supabase_key),
-        "service_role_key_set": bool(settings.supabase_service_role_key),
-        "using_key": "service_role" if settings.supabase_service_role_key else "anon"
-    }
-    
-    # Check 2: Connection test
-    try:
-        conn_result = test_supabase_connection()
-        results["checks"]["connection"] = conn_result
-    except Exception as e:
-        results["checks"]["connection"] = {"status": "error", "error": str(e)}
-    
-    # Check 3: Test read from questions
-    try:
-        supabase = get_supabase()
-        read_result = supabase.table("questions").select("id, question").limit(3).execute()
-        results["checks"]["read_questions"] = {
-            "status": "success",
-            "count": len(read_result.data) if read_result.data else 0,
-            "sample": read_result.data[:2] if read_result.data else []
-        }
-    except Exception as e:
-        results["checks"]["read_questions"] = {"status": "error", "error": str(e)}
-    
-    # Check 4: Test write to attempts (then delete)
-    try:
-        supabase = get_supabase()
-        test_data = {
-            "question_id": 1,
-            "question_text": "DEBUG TEST - DELETE ME",
-            "ideal_answer": "Test",
-            "transcript": "This is a test insert to verify database writes are working.",
-            "audio_duration": 1.0,
-            "content_score": 50.0,
-            "delivery_score": 50.0,
-            "communication_score": 50.0,
-            "voice_score": 50.0,
-            "confidence_score": 50.0,
-            "structure_score": 50.0,
-            "final_score": 50.0,
-            "ml_scores": "{}",
-            "llm_feedback": "{}"
-        }
-        
-        logger.info("DEBUG: Attempting test insert to attempts table...")
-        insert_result = supabase.table("attempts").insert(test_data).execute()
-        
-        if insert_result.data and len(insert_result.data) > 0:
-            test_id = insert_result.data[0].get("id")
-            results["checks"]["write_attempts"] = {
-                "status": "success",
-                "inserted_id": test_id,
-                "message": "Test row inserted successfully!"
-            }
-            
-            # Clean up - delete the test row
-            try:
-                supabase.table("attempts").delete().eq("id", test_id).execute()
-                results["checks"]["write_attempts"]["cleanup"] = "Test row deleted"
-            except Exception as del_e:
-                results["checks"]["write_attempts"]["cleanup"] = f"Could not delete test row: {del_e}"
-        else:
-            results["checks"]["write_attempts"] = {
-                "status": "failed",
-                "message": "Insert returned no data",
-                "raw_result": str(insert_result)
-            }
-    except Exception as e:
-        results["checks"]["write_attempts"] = {
-            "status": "error",
-            "error": str(e),
-            "error_type": type(e).__name__
-        }
-    
-    # Summary
-    all_ok = all(
-        check.get("status") in ["success", "connected"]
-        for check in results["checks"].values()
-        if isinstance(check, dict) and "status" in check
-    )
-    results["overall_status"] = "healthy" if all_ok else "issues_detected"
-    
-    return results
-
-
 @router.get("/llm/status")
 async def get_llm_status():
     """
@@ -359,25 +250,19 @@ async def get_llm_status():
     Returns:
         dict: LLM status including is_working, last_error, provider
     """
-    from app.services.llm_bridge import test_llm_connection
-    
-    # Get current status
+    # Report the status recorded by real LLM calls. This public endpoint never
+    # makes an LLM call itself, so it can't be used to burn API quota.
     status = get_llm_working_status()
     
-    # If never tested, run a quick test
-    if status.get("is_working") is None:
-        test_result = test_llm_connection()
-        status = {
-            "is_working": test_result.get("status") == "connected",
-            "last_error": test_result.get("error"),
-            "provider": test_result.get("provider"),
-            "last_check": datetime.now().isoformat()
-        }
-    
-    return status
+    return {
+        "is_working": status.get("is_working"),
+        "last_error": "LLM request failed" if status.get("last_error") else None,
+        "provider": status.get("provider"),
+        "last_check": status.get("last_check")
+    }
 
 
-@router.get("/llm/keys/health")
+@router.get("/llm/keys/health", dependencies=[Depends(require_admin)])
 async def get_keys_health():
     """
     Get health status of all configured Gemini API keys.
@@ -546,7 +431,8 @@ async def get_smart_questions(
     num_questions: int = Form(default=10, ge=5, le=20, description="Number of questions"),
     resume_text: Optional[str] = Form(default=None, description="Resume text for better matching"),
     previous_question_ids: Optional[str] = Form(default=None, description="Comma-separated IDs of previously asked questions"),
-    user_id: Optional[str] = Form(default=None, description="User ID for personalized selection")
+    user_id: Optional[str] = Form(default=None, description="Deprecated: the logged-in user is used"),
+    user: dict = Depends(require_auth)
 ):
     """
     Get intelligently selected interview questions based on job description.
@@ -571,6 +457,8 @@ async def get_smart_questions(
         dict: Selected questions with metadata about the selection
     """
     from app.models.supabase_client import get_supabase
+    
+    user_id = ensure_same_user(user_id, user)
     
     # Analyze JD to detect domain and extract keywords
     jd_analysis = analyze_job_description(job_description)
@@ -690,7 +578,8 @@ async def analyze_resume_for_domain(
     domain: str = Form(..., description="Selected interview domain"),
     job_description: str = Form(..., description="Job description text"),
     resume: UploadFile = File(..., description="Resume file (PDF or DOCX)"),
-    user_id: Optional[str] = Form(None, description="User ID for storage and DB")
+    user_id: Optional[str] = Form(None, description="Deprecated: the logged-in user is used"),
+    user: dict = Depends(require_auth)
 ):
     """
     Analyze a resume against a job description for a specific domain.
@@ -714,6 +603,8 @@ async def analyze_resume_for_domain(
             - feedback: Tips for improvement
     """
     import asyncio
+    
+    user_id = ensure_same_user(user_id, user)
     
     # Validate file extension
     ext = get_file_extension(resume.filename)
@@ -865,7 +756,8 @@ def get_domain_skills(domain: str) -> List[str]:
 @router.post("/upload_resume", response_model=ResumeAnalysisResponse)
 async def upload_resume(
     resume: UploadFile = File(..., description="Resume file (PDF or DOCX)"),
-    job_description: str = Form(..., description="Job description text")
+    job_description: str = Form(..., description="Job description text"),
+    user: dict = Depends(require_auth)
 ):
     """
     Upload a resume and analyze it against a job description.
@@ -971,7 +863,8 @@ async def upload_resume(
 async def upload_audio(
     audio: UploadFile = File(..., description="Audio recording of answer"),
     question_id: int = Form(..., description="ID of the question being answered"),
-    user_id: Optional[str] = Form(default=None, description="User ID for authenticated requests")
+    user_id: Optional[str] = Form(default=None, description="Deprecated: the logged-in user is used"),
+    user: dict = Depends(require_auth)
 ):
     """
     Upload an audio answer and get detailed feedback.
@@ -1000,6 +893,7 @@ async def upload_audio(
     Raises:
         HTTPException: If file type is invalid, question not found, or processing fails
     """
+    user_id = ensure_same_user(user_id, user)
     logger.info(f"Audio upload initiated: question_id={question_id}, user_id={user_id}, filename={audio.filename}")
     
     # Validate file extension
@@ -1245,7 +1139,8 @@ class AnswerSubmission(BaseModel):
 
 @router.post("/submit_answer", response_model=AudioFeedbackResponse)
 async def submit_answer(
-    submission: AnswerSubmission
+    submission: AnswerSubmission,
+    user: dict = Depends(require_auth)
 ):
     """
     Submit an answer with transcript from browser speech recognition.
@@ -1265,6 +1160,14 @@ async def submit_answer(
             - scores: ML scores for content, delivery, communication, voice, confidence, structure
             - feedback: LLM-generated tips and example answer
     """
+    submission.user_id = ensure_same_user(submission.user_id, user)
+    
+    # Answers can only be added to the caller's own session
+    from app.services.supabase_db import get_session_by_id
+    session = await get_session_by_id(submission.session_id)
+    if not session or session.get("user_id") != submission.user_id:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
     logger.info(f"Answer submission: question_id={submission.question_id}, transcript_len={len(submission.transcript)}")
     
     # Load question from database first, then fallback to local file
@@ -1422,7 +1325,8 @@ async def upload_attempt_audio(
     user_id: str = Form(...),
     session_id: str = Form(...),
     question_order: int = Form(...),
-    attempt_id: int = Form(...)
+    attempt_id: int = Form(...),
+    user: dict = Depends(require_auth)
 ):
     """
     Upload audio for a specific attempt in the background.
@@ -1430,7 +1334,12 @@ async def upload_attempt_audio(
     This is called after submit_answer has already created the attempt record.
     """
     from app.services.storage_service import upload_audio_file
-    from app.services.supabase_db import update_attempt_audio_url
+    from app.services.supabase_db import update_attempt_audio_url, get_attempt_by_id
+    
+    user_id = ensure_same_user(user_id, user)
+    attempt = await get_attempt_by_id(attempt_id)
+    if not attempt or attempt.get("user_id") != user_id:
+        raise HTTPException(status_code=404, detail="Attempt not found")
     
     logger.info(f"Background audio upload for attempt {attempt_id}, session {session_id}")
     
@@ -1465,7 +1374,8 @@ async def upload_attempt_audio(
 
 @router.post("/questions/validate_custom")
 async def validate_custom_questions(
-    file: UploadFile = File(..., description="JSON or CSV file containing questions")
+    file: UploadFile = File(..., description="JSON or CSV file containing questions"),
+    user: dict = Depends(require_auth)
 ):
     """
     Validate and parse a custom questions file for a single session.
@@ -1506,7 +1416,8 @@ async def validate_custom_questions(
 @router.post("/questions/upload_custom")
 async def upload_custom_questions_to_db(
     file: UploadFile = File(..., description="JSON or CSV file containing questions"),
-    user_id: str = Form(..., description="User ID for tracking who uploaded")
+    user_id: Optional[str] = Form(default=None, description="Deprecated: the logged-in user is recorded"),
+    user: dict = Depends(require_auth)
 ):
     """
     Upload custom questions to the database permanently.
@@ -1531,6 +1442,8 @@ async def upload_custom_questions_to_db(
     ]
     """
     from app.models.supabase_client import get_supabase
+    
+    user_id = ensure_same_user(user_id, user)
     
     ext = get_file_extension(file.filename)
     if ext not in [".json", ".csv"]:
@@ -1614,7 +1527,7 @@ class CreateSessionRequest(BaseModel):
 
 
 @router.post("/sessions/create")
-async def create_new_session(request: CreateSessionRequest):
+async def create_new_session(request: CreateSessionRequest, user: dict = Depends(require_auth)):
     """
     Create a new interview session with personalized questions.
     
@@ -1629,6 +1542,7 @@ async def create_new_session(request: CreateSessionRequest):
     Returns:
         Session ID and selected questions
     """
+    request.user_id = ensure_same_user(request.user_id, user)
     logger.info(f"Creating session for user {request.user_id}, domain={request.domain}")
     
     from app.services.supabase_db import create_session, get_user_attempts
@@ -1709,8 +1623,13 @@ async def create_new_session(request: CreateSessionRequest):
         raise HTTPException(status_code=500, detail=f"Failed to create session: {str(e)}")
 
 @router.get("/sessions/{session_id}")
-async def get_session(session_id: str, user_id: str):
+async def get_session(
+    session_id: str,
+    user_id: Optional[str] = None,
+    user: dict = Depends(require_auth)
+):
     """Get session details."""
+    user_id = ensure_same_user(user_id, user)
     from app.services.supabase_db import get_session_by_id, get_session_attempts
     from app.models.supabase_client import get_supabase
     
@@ -1793,12 +1712,13 @@ async def get_session(session_id: str, user_id: str):
 
 @router.get("/sessions")
 async def list_user_sessions(
-    user_id: str,
+    user_id: Optional[str] = None,
     status: Optional[str] = None,
     domain: Optional[str] = None,
     limit: int = 20,
     offset: int = 0,
-    search: Optional[str] = None
+    search: Optional[str] = None,
+    user: dict = Depends(require_auth)
 ):
     """
     List all interview sessions for a user.
@@ -1816,6 +1736,7 @@ async def list_user_sessions(
     """
     from app.services.supabase_db import get_user_sessions
     
+    user_id = ensure_same_user(user_id, user)
     logger.info(f"Fetching sessions for user {user_id}")
     
     try:
@@ -1874,7 +1795,11 @@ async def list_user_sessions(
 
 
 @router.post("/sessions/{session_id}/complete")
-async def complete_interview_session(session_id: str, user_id: str):
+async def complete_interview_session(
+    session_id: str,
+    user_id: Optional[str] = None,
+    user: dict = Depends(require_auth)
+):
     """
     Complete an interview session and calculate aggregate scores.
     
@@ -1882,6 +1807,8 @@ async def complete_interview_session(session_id: str, user_id: str):
         Session summary with aggregate scores
     """
     from app.services.supabase_db import get_session_by_id, complete_session, get_session_attempts
+    
+    user_id = ensure_same_user(user_id, user)
     
     session = await get_session_by_id(session_id)
     if not session:
@@ -1924,8 +1851,13 @@ class SkipQuestionRequest(BaseModel):
 
 
 @router.post("/sessions/{session_id}/skip")
-async def skip_question_in_session(session_id: str, request: SkipQuestionRequest):
+async def skip_question_in_session(
+    session_id: str,
+    request: SkipQuestionRequest,
+    user: dict = Depends(require_auth)
+):
     """Skip a question in the session."""
+    request.user_id = ensure_same_user(request.user_id, user)
     from app.services.supabase_db import skip_attempt, get_session_by_id
     
     session = await get_session_by_id(session_id)
@@ -1959,8 +1891,13 @@ async def skip_question_in_session(session_id: str, request: SkipQuestionRequest
 
 
 @router.get("/sessions/{session_id}/summary")
-async def get_session_summary(session_id: str, user_id: str):
+async def get_session_summary(
+    session_id: str,
+    user_id: Optional[str] = None,
+    user: dict = Depends(require_auth)
+):
     """Get the summary for a completed session."""
+    user_id = ensure_same_user(user_id, user)
     from app.services.supabase_db import get_session_by_id, get_session_attempts, get_session_report
     
     session = await get_session_by_id(session_id)
@@ -1995,7 +1932,7 @@ class AddQuestionRequest(BaseModel):
     uploaded_by: Optional[str] = None
 
 
-@router.post("/questions/add")
+@router.post("/questions/add", dependencies=[Depends(require_admin)])
 async def add_question_to_pool_endpoint(request: AddQuestionRequest):
     """Add a custom question to the question pool."""
     from app.services.supabase_db import add_question_to_pool
@@ -2026,7 +1963,7 @@ async def add_question_to_pool_endpoint(request: AddQuestionRequest):
     }
 
 
-@router.post("/questions/upload_bulk")
+@router.post("/questions/upload_bulk", dependencies=[Depends(require_admin)])
 async def upload_questions_bulk(
     file: UploadFile = File(..., description="JSON or CSV file containing questions"),
     uploaded_by: Optional[str] = Form(default=None)

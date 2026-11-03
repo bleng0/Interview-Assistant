@@ -122,7 +122,8 @@ SUPABASE_SERVICE_ROLE_KEY=<service_role secret key>
 
 # --- Server ---
 CORS_ORIGINS=http://localhost:5173,http://localhost:3000
-DEBUG=true
+DEBUG=true                           # enables /docs; set false when deployed
+ADMIN_EMAILS=you@example.com         # who may add/upload questions to the shared pool
 ```
 
 ### 3. Frontend setup
@@ -175,6 +176,8 @@ npm run dev
 | `ffmpeg not found` / audio conversion errors | Install FFmpeg and restart the terminal |
 | Grammar score always neutral | Java not installed (LanguageTool needs it) |
 | Gemini `400 API key not valid` or `403` | Key revoked, blocked or unrestricted (see Troubleshooting); create a new key in AI Studio |
+| API calls return `401` / `403` | You are logged out or the session expired: log in again. The backend only accepts requests carrying your login token |
+| Admin question upload returns `403` | Add your account email to `ADMIN_EMAILS` in `backend/.env` and restart the backend |
 | Frontend calls fail with CORS errors | Add the frontend URL to `CORS_ORIGINS` and restart the backend |
 
 ---

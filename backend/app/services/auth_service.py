@@ -18,7 +18,7 @@ from typing import Optional, Dict, Any, Tuple
 from datetime import datetime
 from functools import lru_cache
 
-from fastapi import HTTPException, Depends, Header
+from fastapi import HTTPException, Depends, Header, Query
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 from app.config import settings
@@ -396,6 +396,52 @@ async def require_auth(
         raise HTTPException(
             status_code=401,
             detail="Authentication required"
+        )
+    return user
+
+
+def ensure_same_user(requested_user_id: Optional[str], user: Dict[str, Any]) -> str:
+    """
+    Return the authenticated user's ID, rejecting requests for another user's data.
+
+    Older clients still send a user_id parameter; it is accepted only when it
+    matches the token. The token is the single source of truth for identity.
+    """
+    if requested_user_id and requested_user_id != user["id"]:
+        raise HTTPException(
+            status_code=403,
+            detail="You can only access your own data"
+        )
+    return user["id"]
+
+
+async def current_user_id(
+    user_id: Optional[str] = Query(default=None, description="Deprecated: ignored unless it matches the logged-in user"),
+    user: Dict[str, Any] = Depends(require_auth)
+) -> str:
+    """
+    FastAPI dependency: the logged-in user's ID.
+
+    Drop-in replacement for endpoints that used to trust a `user_id`
+    query parameter.
+    """
+    return ensure_same_user(user_id, user)
+
+
+async def require_admin(
+    user: Dict[str, Any] = Depends(require_auth)
+) -> Dict[str, Any]:
+    """
+    FastAPI dependency that requires an admin user.
+
+    Admins are listed by email in the ADMIN_EMAILS setting (comma-separated).
+    With no admins configured, admin-only endpoints are closed to everyone.
+    """
+    email = (user.get("email") or "").strip().lower()
+    if not email or email not in settings.get_admin_emails():
+        raise HTTPException(
+            status_code=403,
+            detail="Admin access required"
         )
     return user
 

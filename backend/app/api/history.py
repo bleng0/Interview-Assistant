@@ -15,6 +15,7 @@ from datetime import datetime, timedelta
 from fastapi import APIRouter, HTTPException, Query, Depends
 
 from app.logging_config import get_logger
+from app.services.auth_service import current_user_id
 from app.services.supabase_db import (
     get_user_attempts,
     get_attempt_by_id,
@@ -33,7 +34,7 @@ router = APIRouter(prefix="/history", tags=["History & Progress"])
 
 @router.get("/attempts")
 async def get_attempts(
-    user_id: str = Query(..., description="User ID"),
+    user_id: str = Depends(current_user_id),
     limit: int = Query(default=50, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     question_id: Optional[int] = Query(default=None, description="Filter by question ID"),
@@ -103,15 +104,19 @@ async def get_attempts(
 
 
 @router.get("/attempts/{attempt_id}")
-async def get_single_attempt(attempt_id: int):
+async def get_single_attempt(
+    attempt_id: int,
+    user_id: str = Depends(current_user_id)
+):
     """
     Get detailed information about a single attempt.
-    
+
     Includes full transcript, all scores, and LLM feedback.
+    Only the attempt's owner can read it (others get 404, so IDs can't be probed).
     """
     attempt = await get_attempt_by_id(attempt_id)
-    
-    if not attempt:
+
+    if not attempt or attempt.get("user_id") != user_id:
         raise HTTPException(status_code=404, detail="Attempt not found")
     
     return attempt
@@ -120,7 +125,7 @@ async def get_single_attempt(attempt_id: int):
 @router.get("/attempts/question/{question_id}")
 async def get_question_history(
     question_id: int,
-    user_id: str = Query(..., description="User ID"),
+    user_id: str = Depends(current_user_id),
     limit: int = Query(default=10, ge=1, le=50)
 ):
     """
@@ -171,7 +176,7 @@ async def get_question_history(
 
 @router.get("/skills/progress")
 async def get_skill_progress(
-    user_id: str = Query(..., description="User ID")
+    user_id: str = Depends(current_user_id)
 ):
     """
     Get skill-wise progress data for a user.
@@ -227,7 +232,7 @@ async def get_skill_progress(
 @router.get("/skills/{skill_name}/history")
 async def get_skill_history(
     skill_name: str,
-    user_id: str = Query(..., description="User ID"),
+    user_id: str = Depends(current_user_id),
     days: int = Query(default=30, ge=7, le=365)
 ):
     """
@@ -294,7 +299,7 @@ async def get_skill_history(
 
 @router.get("/improvement")
 async def get_improvement_analytics(
-    user_id: str = Query(..., description="User ID"),
+    user_id: str = Depends(current_user_id),
     period_days: int = Query(default=30, ge=7, le=365)
 ):
     """
@@ -374,7 +379,7 @@ async def get_improvement_analytics(
 
 @router.get("/improvement/insights")
 async def get_improvement_insights(
-    user_id: str = Query(..., description="User ID")
+    user_id: str = Depends(current_user_id)
 ):
     """
     Get AI-generated improvement insights.
@@ -431,7 +436,7 @@ async def get_improvement_insights(
 
 @router.get("/dashboard")
 async def get_dashboard_data(
-    user_id: str = Query(..., description="User ID")
+    user_id: str = Depends(current_user_id)
 ):
     """
     Get comprehensive dashboard data for a user.

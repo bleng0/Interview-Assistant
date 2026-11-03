@@ -15,7 +15,7 @@ Author: AI Interview Assistant Team
 
 import json
 from typing import List, Optional
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Query
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Query, Depends
 from pydantic import BaseModel, Field
 
 from app.services.question_service import (
@@ -32,10 +32,13 @@ from app.services.question_service import (
     CATEGORIES
 )
 from app.logging_config import get_logger
+from app.services.auth_service import require_admin, require_auth
 
 logger = get_logger(__name__)
 
-# Create router
+# Create router.
+# Reads are public (the question bank is not secret); every write requires an admin
+# (ADMIN_EMAILS in backend/.env).
 router = APIRouter(prefix="/admin/questions", tags=["Admin - Questions"])
 
 
@@ -184,7 +187,7 @@ async def get_question(question_id: int):
 # Question Management Endpoints
 # ===========================================
 
-@router.post("/", response_model=QuestionResponse)
+@router.post("/", response_model=QuestionResponse, dependencies=[Depends(require_admin)])
 async def create_question(data: QuestionCreate):
     """
     Add a new question to the pool.
@@ -225,7 +228,7 @@ async def create_question(data: QuestionCreate):
     )
 
 
-@router.post("/bulk")
+@router.post("/bulk", dependencies=[Depends(require_admin)])
 async def create_questions_bulk(data: BulkQuestionsCreate):
     """
     Add multiple questions at once.
@@ -246,7 +249,7 @@ async def create_questions_bulk(data: BulkQuestionsCreate):
 # Upload Endpoints (JSON/CSV)
 # ===========================================
 
-@router.post("/upload/json")
+@router.post("/upload/json", dependencies=[Depends(require_admin)])
 async def upload_questions_json(
     file: UploadFile = File(..., description="JSON file with questions")
 ):
@@ -314,7 +317,7 @@ async def upload_questions_json(
         raise HTTPException(status_code=500, detail=f"Import failed: {str(e)}")
 
 
-@router.post("/upload/csv")
+@router.post("/upload/csv", dependencies=[Depends(require_admin)])
 async def upload_questions_csv(
     file: UploadFile = File(..., description="CSV file with questions")
 ):
@@ -401,7 +404,7 @@ async def get_csv_template():
 # JD Analysis
 # ===========================================
 
-@router.post("/analyze-jd", response_model=JDAnalysisResponse)
+@router.post("/analyze-jd", response_model=JDAnalysisResponse, dependencies=[Depends(require_auth)])
 async def analyze_jd(job_description: str = Form(...)):
     """
     Analyze a job description to extract keywords, skills, and domain.
