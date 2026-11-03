@@ -52,7 +52,10 @@ soundfile>=0.12.1
 
 # RECOMMENDED: Faster-Whisper for high-quality local transcription (no API key!)
 # Uses CTranslate2 for 4x faster inference than OpenAI Whisper
-faster-whisper>=0.10.0
+faster-whisper>=1.2.1
+# PyAV 19 removed an argument faster-whisper 1.2.1 uses; with it, every
+# transcription fails and silently falls back to a mock transcript.
+av>=16.1.0,<19
 
 # AssemblyAI for cloud transcription (has free tier)
 assemblyai>=0.17.0
