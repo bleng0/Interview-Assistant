@@ -14,7 +14,7 @@ Run with: pytest backend/app/tests/test_endpoints.py -v
 
 import pytest
 from fastapi.testclient import TestClient
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, AsyncMock
 import json
 import os
 
@@ -25,9 +25,28 @@ import os
 
 @pytest.fixture
 def client():
-    """Create a test client for the FastAPI app."""
+    """Create a test client for the FastAPI app (not logged in)."""
     from app.main import app
     return TestClient(app)
+
+
+TEST_USER = {"id": "user-a", "email": "a@example.com", "full_name": "Test User", "email_verified": True}
+
+
+@pytest.fixture
+def auth_client():
+    """Test client whose requests are treated as coming from TEST_USER."""
+    from app.main import app
+    from app.services.auth_service import get_current_user
+
+    async def fake_current_user():
+        return TEST_USER
+
+    app.dependency_overrides[get_current_user] = fake_current_user
+    try:
+        yield TestClient(app)
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
 
 
 @pytest.fixture
@@ -104,9 +123,9 @@ class TestQuestionsEndpoint:
 class TestResumeUpload:
     """Tests for /api/v1/upload_resume endpoint."""
     
-    def test_upload_resume_missing_file(self, client):
+    def test_upload_resume_missing_file(self, auth_client):
         """Should return error when file is missing."""
-        response = client.post(
+        response = auth_client.post(
             "/api/v1/upload_resume",
             data={"job_description": "Looking for a Python developer"}
         )
@@ -114,10 +133,10 @@ class TestResumeUpload:
         # Should fail due to missing file
         assert response.status_code == 422
     
-    def test_upload_resume_missing_jd(self, client):
+    def test_upload_resume_missing_jd(self, auth_client):
         """Should return error when JD is missing."""
         # Create a minimal valid PDF-like content
-        response = client.post(
+        response = auth_client.post(
             "/api/v1/upload_resume",
             files={"resume": ("test.pdf", b"fake pdf content", "application/pdf")}
         )
@@ -125,9 +144,9 @@ class TestResumeUpload:
         # Should fail due to missing job description
         assert response.status_code == 422
     
-    def test_upload_resume_invalid_format(self, client):
+    def test_upload_resume_invalid_format(self, auth_client):
         """Should reject invalid file formats."""
-        response = client.post(
+        response = auth_client.post(
             "/api/v1/upload_resume",
             files={"resume": ("test.txt", b"text content", "text/plain")},
             data={"job_description": "Looking for a developer"}
@@ -144,27 +163,27 @@ class TestResumeUpload:
 class TestAudioUpload:
     """Tests for /api/v1/upload_audio endpoint."""
     
-    def test_upload_audio_missing_file(self, client):
+    def test_upload_audio_missing_file(self, auth_client):
         """Should return error when audio file is missing."""
-        response = client.post(
+        response = auth_client.post(
             "/api/v1/upload_audio",
             data={"question_id": 1}
         )
         
         assert response.status_code == 422
     
-    def test_upload_audio_missing_question_id(self, client):
+    def test_upload_audio_missing_question_id(self, auth_client):
         """Should return error when question_id is missing."""
-        response = client.post(
+        response = auth_client.post(
             "/api/v1/upload_audio",
             files={"audio": ("test.wav", b"fake audio", "audio/wav")}
         )
         
         assert response.status_code == 422
     
-    def test_upload_audio_invalid_format(self, client):
+    def test_upload_audio_invalid_format(self, auth_client):
         """Should reject invalid audio formats."""
-        response = client.post(
+        response = auth_client.post(
             "/api/v1/upload_audio",
             files={"audio": ("test.txt", b"not audio", "text/plain")},
             data={"question_id": 1}
@@ -173,12 +192,12 @@ class TestAudioUpload:
         assert response.status_code == 400
         assert "Invalid audio format" in response.json()["detail"]
     
-    def test_upload_audio_invalid_question(self, client):
+    def test_upload_audio_invalid_question(self, auth_client):
         """Should return error for non-existent question."""
         # Create a fake WAV header (RIFF header)
         wav_header = b'RIFF' + (1000).to_bytes(4, 'little') + b'WAVE'
         
-        response = client.post(
+        response = auth_client.post(
             "/api/v1/upload_audio",
             files={"audio": ("test.wav", wav_header, "audio/wav")},
             data={"question_id": 99999}
@@ -193,20 +212,27 @@ class TestAudioUpload:
 # ===========================================
 
 class TestAttemptsEndpoint:
-    """Tests for /api/v1/attempts endpoint."""
+    """Tests for /api/v1/history/attempts endpoint."""
     
-    def test_get_attempts_empty(self, client):
+    @patch("app.api.history.count_user_attempts", new_callable=AsyncMock, return_value=0)
+    @patch("app.api.history.get_user_attempts", new_callable=AsyncMock, return_value=[])
+    def test_get_attempts_empty(self, mock_attempts, mock_count, auth_client):
         """Should return empty list when no attempts exist."""
-        response = client.get("/api/v1/attempts")
+        response = auth_client.get("/api/v1/history/attempts")
         
         assert response.status_code == 200
         data = response.json()
         assert "attempts" in data
         assert isinstance(data["attempts"], list)
+        mock_attempts.assert_awaited_once()
+        assert mock_attempts.await_args.args[0] == TEST_USER["id"]
     
-    def test_get_attempts_with_limit(self, client):
+    @patch("app.api.history.count_user_attempts", new_callable=AsyncMock, return_value=10)
+    @patch("app.api.history.get_user_attempts", new_callable=AsyncMock,
+           return_value=[{"id": i, "final_score": 50} for i in range(10)])
+    def test_get_attempts_with_limit(self, mock_attempts, mock_count, auth_client):
         """Should respect limit parameter."""
-        response = client.get("/api/v1/attempts?limit=5")
+        response = auth_client.get("/api/v1/history/attempts?limit=5")
         
         assert response.status_code == 200
         data = response.json()
@@ -245,7 +271,10 @@ class TestCORS:
         """Should include CORS headers in response."""
         response = client.options(
             "/api/v1/health",
-            headers={"Origin": "http://localhost:5173"}
+            headers={
+                "Origin": "http://localhost:5173",
+                "Access-Control-Request-Method": "GET",
+            }
         )
         
         # OPTIONS should be allowed
