@@ -57,9 +57,12 @@ def extract_text_from_resume(file_path: str) -> str:
         raise ValueError(f"Unsupported file format: {ext}")
 
 
+MAX_RESUME_PDF_PAGES = 20
+
+
 def _extract_text_from_pdf(file_path: str) -> str:
     """
-    Extract text from a PDF file using PyPDF2.
+    Extract text from a PDF file using pypdf (the maintained successor of PyPDF2).
     
     Args:
         file_path: Path to the PDF file
@@ -68,12 +71,13 @@ def _extract_text_from_pdf(file_path: str) -> str:
         str: Extracted text
     """
     try:
-        from PyPDF2 import PdfReader
+        from pypdf import PdfReader
         
         reader = PdfReader(file_path)
         text_parts = []
         
-        for page in reader.pages:
+        # Resumes are short; cap pages so a hostile PDF can't tie up the server
+        for page in reader.pages[:MAX_RESUME_PDF_PAGES]:
             page_text = page.extract_text()
             if page_text:
                 text_parts.append(page_text)
