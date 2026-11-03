@@ -87,3 +87,11 @@ htmlcov/
 *.mp3
 *.m4a
 !backend/app/data/sample_transcripts/*.wav
+
+# Extra local virtualenvs and tool state
+venv*/
+.venv*/
+packages_to_install.txt
+.agent-advisor/
+.saws-migrate/
+.migration/
