@@ -224,7 +224,7 @@ async def get_skill_progress(
             "summary": {
                 "average_current_score": 0,
                 "overall_trend": "unknown",
-                "error": str(e)
+                "error": "Could not load skill progress"
             }
         }
 
@@ -289,7 +289,7 @@ async def get_skill_history(
         return {
             "skill_name": skill_name,
             "history": [],
-            "error": str(e)
+            "error": "Could not load skill history"
         }
 
 

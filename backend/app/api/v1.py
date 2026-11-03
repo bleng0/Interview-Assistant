@@ -45,6 +45,7 @@ from datetime import datetime
 from typing import List, Optional
 
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends, Query
+from starlette.concurrency import run_in_threadpool
 
 from app.config import (
     UPLOAD_DIR, 
@@ -305,7 +306,8 @@ async def get_keys_health():
                 "checked_at": datetime.now().isoformat()
             }
         else:
-            raise HTTPException(status_code=500, detail=str(e))
+            logger.error(f"Key health check failed: {e}")
+            raise HTTPException(status_code=500, detail="Key health check failed")
 
 
 # ===========================================
@@ -643,7 +645,7 @@ async def analyze_resume_for_domain(
     
     try:
         # Extract text from resume
-        resume_text = extract_text_from_resume(filepath)
+        resume_text = await run_in_threadpool(extract_text_from_resume, filepath)
         
         if not resume_text or len(resume_text.strip()) < 50:
             raise HTTPException(
@@ -651,10 +653,11 @@ async def analyze_resume_for_domain(
                 detail="Could not extract sufficient text from resume. Please check the file."
             )
         
-        # Run ML and LLM tasks concurrently for speed
+        # ML scoring is CPU-bound: run it in a worker thread so the server
+        # keeps answering other requests (and health checks) meanwhile
         async def run_ml_tasks():
-            ml_result = compare_resume_with_jd(resume_text, job_description)
-            resume_score = score_resume(resume_text, job_description)
+            ml_result = await run_in_threadpool(compare_resume_with_jd, resume_text, job_description)
+            resume_score = await run_in_threadpool(score_resume, resume_text, job_description)
             return ml_result, resume_score
         
         async def run_domain_check():
@@ -668,7 +671,8 @@ async def analyze_resume_for_domain(
         domain_matched, domain_fit = await run_domain_check()
         
         # Generate LLM feedback (this is the slow part)
-        llm_feedback = generate_resume_feedback(
+        llm_feedback = await run_in_threadpool(
+            generate_resume_feedback,
             resume_text=resume_text,
             jd_text=job_description,
             ml_scores=ml_result
@@ -810,7 +814,7 @@ async def upload_resume(
     
     try:
         # Extract text from resume
-        resume_text = extract_text_from_resume(filepath)
+        resume_text = await run_in_threadpool(extract_text_from_resume, filepath)
         
         if not resume_text or len(resume_text.strip()) < 50:
             raise HTTPException(
@@ -819,13 +823,14 @@ async def upload_resume(
             )
         
         # Compare resume with job description using ML
-        ml_result = compare_resume_with_jd(resume_text, job_description)
+        ml_result = await run_in_threadpool(compare_resume_with_jd, resume_text, job_description)
         
         # Score the resume
-        resume_score = score_resume(resume_text, job_description)
+        resume_score = await run_in_threadpool(score_resume, resume_text, job_description)
         
         # Generate LLM feedback
-        llm_feedback = generate_resume_feedback(
+        llm_feedback = await run_in_threadpool(
+            generate_resume_feedback,
             resume_text=resume_text,
             jd_text=job_description,
             ml_scores=ml_result
@@ -954,18 +959,21 @@ async def upload_audio(
         f.write(content)
     logger.debug(f"Temporary audio file saved: {filepath}")
     
+    # Set before the try so the cleanup in `finally` works even if conversion fails
+    processed_path = filepath
+    
     try:
         # Convert audio if needed (to WAV for processing)
         logger.debug("Converting audio format if necessary")
-        processed_path = convert_audio_if_needed(filepath)
+        processed_path = await run_in_threadpool(convert_audio_if_needed, filepath)
         
         # Get audio duration
-        duration_seconds = get_audio_duration(processed_path)
+        duration_seconds = await run_in_threadpool(get_audio_duration, processed_path)
         logger.info(f"Audio duration: {duration_seconds:.2f} seconds")
         
         # Transcribe the audio
         logger.info("Transcribing audio...")
-        transcript = transcribe_audio(processed_path)
+        transcript = await run_in_threadpool(transcribe_audio, processed_path)
         
         if not transcript or len(transcript.strip()) < 5:
             logger.warning(f"Transcription failed or too short: {len(transcript or '')} chars")
@@ -983,7 +991,8 @@ async def upload_audio(
         # Calculate ML scores using keyword-based scoring (0-10 scale)
         if keywords:
             logger.debug(f"Calculating keyword-based scores with {len(keywords)} keywords")
-            ml_scores = score_answer_by_keywords(
+            ml_scores = await run_in_threadpool(
+                score_answer_by_keywords,
                 transcript=transcript,
                 keywords=keywords,
                 duration_seconds=duration_seconds,
@@ -992,7 +1001,8 @@ async def upload_audio(
         else:
             # Fallback to semantic similarity scoring (already 0-100)
             logger.debug("Calculating semantic similarity scores")
-            ml_scores_raw = score_answer(
+            ml_scores_raw = await run_in_threadpool(
+                score_answer,
                 transcript=transcript,
                 duration_seconds=duration_seconds,
                 ideal_answer=question["ideal_answer"],
@@ -1026,7 +1036,8 @@ async def upload_audio(
         
         # Generate LLM feedback
         logger.info("Generating LLM feedback...")
-        llm_feedback = generate_answer_feedback(
+        llm_feedback = await run_in_threadpool(
+            generate_answer_feedback,
             question=question["question"],
             transcript=transcript,
             ideal_answer=question["ideal_answer"],
@@ -1095,7 +1106,7 @@ async def upload_audio(
         logger.error(f"Audio processing failed: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"Processing failed: {str(e)}"
+            detail="Processing failed. Please try again."
         )
     
     finally:
@@ -1218,7 +1229,8 @@ async def submit_answer(
     try:
         if keywords:
             logger.debug(f"Calculating keyword-based scores with {len(keywords)} keywords")
-            ml_scores = score_answer_by_keywords(
+            ml_scores = await run_in_threadpool(
+                score_answer_by_keywords,
                 transcript=transcript,
                 keywords=keywords,
                 duration_seconds=duration_seconds,
@@ -1227,7 +1239,8 @@ async def submit_answer(
         else:
             # Fallback to semantic similarity scoring
             logger.debug("Calculating semantic similarity scores")
-            ml_scores_raw = score_answer(
+            ml_scores_raw = await run_in_threadpool(
+                score_answer,
                 transcript=transcript,
                 duration_seconds=duration_seconds,
                 ideal_answer=question["ideal_answer"]
@@ -1253,7 +1266,8 @@ async def submit_answer(
         
         # Generate LLM feedback
         logger.info("Generating LLM feedback...")
-        llm_feedback = generate_answer_feedback(
+        llm_feedback = await run_in_threadpool(
+            generate_answer_feedback,
             question=question["question"],
             transcript=transcript,
             ideal_answer=question["ideal_answer"],
@@ -1316,7 +1330,7 @@ async def submit_answer(
         logger.error(f"Answer submission failed: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"Processing failed: {str(e)}"
+            detail="Processing failed. Please try again."
         )
 
 @router.post("/upload_attempt_audio")
@@ -1365,7 +1379,7 @@ async def upload_attempt_audio(
         logger.error(f"Failed to upload background audio for attempt {attempt_id}: {e}")
         # We don't raise HTTPException here because this is a background call 
         # that shouldn't break the UI if it fails
-        return {"status": "error", "message": str(e)}
+        return {"status": "error", "message": "Audio upload failed"}
 
 
 # ===========================================
@@ -1508,7 +1522,7 @@ async def upload_custom_questions_to_db(
         logger.error(f"Failed to upload custom questions: {e}")
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to upload questions: {str(e)}"
+            detail="Failed to upload questions. Please try again."
         )
 
 
@@ -1620,7 +1634,7 @@ async def create_new_session(request: CreateSessionRequest, user: dict = Depends
         raise
     except Exception as e:
         logger.error(f"Failed to create session: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to create session: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to create session. Please try again.")
 
 @router.get("/sessions/{session_id}")
 async def get_session(

@@ -314,7 +314,7 @@ async def upload_questions_json(
         raise HTTPException(status_code=400, detail="File must be UTF-8 encoded")
     except Exception as e:
         logger.error(f"JSON upload failed: {e}")
-        raise HTTPException(status_code=500, detail=f"Import failed: {str(e)}")
+        raise HTTPException(status_code=500, detail="Import failed. Please try again.")
 
 
 @router.post("/upload/csv", dependencies=[Depends(require_admin)])
@@ -359,7 +359,7 @@ async def upload_questions_csv(
         raise HTTPException(status_code=400, detail="File must be UTF-8 encoded")
     except Exception as e:
         logger.error(f"CSV upload failed: {e}")
-        raise HTTPException(status_code=500, detail=f"Import failed: {str(e)}")
+        raise HTTPException(status_code=500, detail="Import failed. Please try again.")
 
 
 # ===========================================

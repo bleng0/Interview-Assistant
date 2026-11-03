@@ -79,7 +79,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
     
     logger.info("[OK] ML models will be loaded lazily on first request")
     logger.info("[OK] API fully initialized and ready to accept requests")
-    logger.info(f"[DOCS] API documentation: http://localhost:8000/docs")
+    if settings.debug:
+        logger.info("[DOCS] API documentation: http://localhost:8000/docs")
     
     yield  # Application runs here
     
@@ -105,8 +106,10 @@ app = FastAPI(
     """,
     version="1.0.0",
     lifespan=lifespan,
-    docs_url="/docs",
-    redoc_url="/redoc"
+    # Interactive docs list every endpoint; only expose them in local development
+    docs_url="/docs" if settings.debug else None,
+    redoc_url="/redoc" if settings.debug else None,
+    openapi_url="/openapi.json" if settings.debug else None
 )
 
 
