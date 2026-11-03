@@ -483,17 +483,21 @@ async def _call_gemini_async(prompt: str) -> str:
     - Response validation
     """
     try:
+        import asyncio
         import google.generativeai as genai
         
-        api_key = settings.google_api_key
-        if not api_key:
-            logger.warning("No Google API key configured")
+        # Use the same settings as llm_bridge (LLM_API_KEY / LLM_MODEL).
+        # These previously read settings.google_api_key / settings.gemini_model,
+        # which don't exist, so every call silently failed and fell back to defaults.
+        api_keys = settings.get_all_api_keys()
+        if not api_keys:
+            logger.warning("No Gemini API key configured (LLM_API_KEY)")
             return ""
         
-        genai.configure(api_key=api_key)
+        genai.configure(api_key=api_keys[0])
         
         model = genai.GenerativeModel(
-            model_name=settings.gemini_model or "gemini-1.5-flash",
+            model_name=settings.llm_model or "gemini-2.5-flash",
             generation_config={
                 "temperature": 0.7,
                 "top_p": 0.9,
@@ -501,7 +505,8 @@ async def _call_gemini_async(prompt: str) -> str:
             }
         )
         
-        response = model.generate_content(prompt)
+        # The SDK call blocks; run it in a thread so the server stays responsive
+        response = await asyncio.to_thread(model.generate_content, prompt)
         
         if response and response.text:
             logger.debug(f"Gemini response length: {len(response.text)}")
