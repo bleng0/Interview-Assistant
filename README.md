@@ -452,10 +452,11 @@ Run the schema in Supabase SQL Editor:
 
 ## 🛡️ Security
 
-- **Row Level Security (RLS)** — Users can only access their own data
-- **Service Role Key** — Backend uses admin key, never exposed to client
-- **Anon Key** — Frontend uses public key with RLS protection
-- **No Audio Storage** — Audio processed and discarded (privacy first)
+- **Login required** — Every user-data API route verifies the Supabase login token and takes the user's identity from it, never from the request. Requests for another user's data are rejected (`403`/`404`). Covered by `backend/app/tests/test_security.py`.
+- **Service role key stays on the server** — The backend uses the service-role key, which bypasses Row Level Security, so access control is enforced in the API layer above. The frontend only ever has the public anon key.
+- **Admin-only question pool edits** — Adding or bulk-uploading questions requires an email listed in `ADMIN_EMAILS`.
+- **Uploads are stored privately** — Recorded answers and resumes are saved to private Supabase Storage buckets (`audio-recordings`, `resumes`) and served through signed URLs. Delete them from Supabase if you don't want to keep them.
+- **Production defaults** — With `DEBUG=false` (the default) the interactive API docs are off and error responses don't include internal details.
 
 ---
 
