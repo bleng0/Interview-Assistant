@@ -52,77 +52,130 @@
 
 ## 🚀 Quick Start
 
-### Prerequisites
+These steps take a fresh machine to a running app in about 30–45 minutes. Commands are for **Windows (PowerShell)**; macOS/Linux equivalents are in comments.
 
-- **Python 3.10+** ([Download](https://python.org))
-- **Node.js 18+** ([Download](https://nodejs.org))
-- **Google Gemini API Key** (Free) — [Get Key →](https://aistudio.google.com/apikey)
+### 0. Prerequisites
 
-### Step 1: Clone & Setup Backend
+| Tool | Version | Why | Check |
+|------|---------|-----|-------|
+| Python | 3.10–3.12 (3.12 recommended) | Backend | `python --version` |
+| Node.js | 18+ | Frontend | `node --version` |
+| FFmpeg | any recent | Converts browser audio (webm) to wav | `ffmpeg -version` |
+| Java (JRE) | 17+ | LanguageTool grammar checker (optional; grammar scoring is skipped without it) | `java -version` |
+| Git | any | Clone the repo | `git --version` |
 
-```bash
-# Clone the repository
-git clone <your-repo-url>
-cd "AI Interview Assistant"
+Install on Windows with winget:
+```powershell
+winget install Python.Python.3.12 OpenJS.NodeJS.LTS Gyan.FFmpeg EclipseAdoptium.Temurin.17.JRE Git.Git
+# macOS: brew install python@3.12 node ffmpeg openjdk@17 git
+```
+Restart the terminal afterwards so the new tools are on your PATH.
 
-# Create virtual environment
+You also need:
+- A **Supabase** project (free tier is fine): https://supabase.com/dashboard
+- A **Google Gemini API key**: https://aistudio.google.com/apikey
+
+### 1. Set up Supabase (one time)
+
+1. **Create the schema.** In the Supabase dashboard, open **SQL Editor → New query**, paste the whole of `backend/database/final_schema.sql` and click **Run**.
+   > ⚠️ This script **drops and recreates** all app tables. Run it only on a new project, or back up first.
+   It creates 9 tables, row-level-security policies, triggers, sample questions, and the `audio-recordings` and `resumes` storage buckets.
+2. **Check the buckets.** Under **Storage**, confirm `audio-recordings` and `resumes` exist and are **private**. If not, create them (the backend also tries to create them on startup).
+3. **Configure email auth.** Under **Authentication → Providers**, make sure **Email** is enabled. For local testing you can turn off **Confirm email** so new sign-ups can log in straight away. Under **Authentication → URL Configuration**, set **Site URL** to `http://localhost:5173`.
+4. **Copy three values** from **Project Settings → API** (or **API Keys**):
+   - Project URL → `SUPABASE_URL` / `VITE_SUPABASE_URL`
+   - `anon` public key → `SUPABASE_KEY` / `VITE_SUPABASE_ANON_KEY`
+   - `service_role` secret key → `SUPABASE_SERVICE_ROLE_KEY` (**backend only — never put it in the frontend or commit it**)
+
+### 2. Backend setup
+
+```powershell
+cd "AI-Interview-Assistant"          # repo root
 python -m venv venv
+.\venv\Scripts\Activate.ps1          # macOS/Linux: source venv/bin/activate
+python -m pip install --upgrade pip
+pip install -r requirements.txt      # first install is large (PyTorch, Whisper): 5–15 min
+```
+If PowerShell blocks the activate script, run once: `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`.
 
-# Activate (Windows)
-venv\Scripts\activate
-
-# Activate (Mac/Linux)
-# source venv/bin/activate
-
-# Install Python dependencies
-pip install -r requirements.txt
-
-# Setup backend environment
+Create `backend/.env` from the template and fill it in:
+```powershell
 cd backend
-copy .env.example .env   # Windows
-# cp .env.example .env   # Mac/Linux
+copy .env.example .env               # macOS/Linux: cp .env.example .env
 ```
 
-**Edit `backend/.env`:**
 ```env
-LLM_API_KEY=your_gemini_api_key_here
+# --- LLM (required) ---
+LLM_PROVIDER=gemini
+LLM_MODEL=gemini-2.5-flash
+LLM_API_KEY=your_gemini_key
+# Optional extra keys for rotation: LLM_API_KEY_2 ... LLM_API_KEY_12
+
+# --- Transcription (local, no key) ---
+TRANSCRIPTION_PROVIDER=faster_whisper
+WHISPER_MODEL_SIZE=small             # tiny | base | small | medium (bigger = slower, more accurate)
+
+# --- Supabase (required) ---
+SUPABASE_URL=https://<your-project>.supabase.co
+SUPABASE_KEY=<anon public key>
+SUPABASE_SERVICE_ROLE_KEY=<service_role secret key>
+
+# --- Server ---
+CORS_ORIGINS=http://localhost:5173,http://localhost:3000
+DEBUG=true
 ```
 
-### Step 2: Setup Frontend
+### 3. Frontend setup
 
-```bash
-cd ../frontend
+```powershell
+cd ..\frontend
 npm install
-
-# Setup frontend environment
-copy .env.example .env   # Windows
-# cp .env.example .env   # Mac/Linux
+copy .env.example .env               # macOS/Linux: cp .env.example .env
 ```
 
-**Edit `frontend/.env` (for Supabase auth):**
 ```env
-VITE_SUPABASE_URL=your_supabase_url
-VITE_SUPABASE_ANON_KEY=your_anon_key
+VITE_SUPABASE_URL=https://<your-project>.supabase.co
+VITE_SUPABASE_ANON_KEY=<anon public key>
+VITE_API_URL=http://localhost:8000
 ```
 
-### Step 3: Run the Application
+### 4. Run it (two terminals)
 
-**Terminal 1 — Backend:**
-```bash
+**Terminal 1 — backend** (from the repo root):
+```powershell
+.\venv\Scripts\Activate.ps1
 cd backend
 uvicorn app.main:app --reload --port 8000
 ```
+Wait for `API fully initialized and ready to accept requests`. The **first recorded answer** is slow (30–90 s) because Whisper, the sentence-transformer and LanguageTool models download on first use (~1 GB total, cached afterwards).
 
-**Terminal 2 — Frontend:**
-```bash
+**Terminal 2 — frontend:**
+```powershell
 cd frontend
 npm run dev
 ```
 
-### Step 4: Open in Browser
+### 5. Check it works
 
-- 🌐 **App:** http://localhost:5173
-- 📖 **API Docs:** http://localhost:8000/docs
+| Check | Expected |
+|-------|----------|
+| http://localhost:8000/api/v1/health | JSON with `"status"` healthy |
+| http://localhost:8000/docs | Interactive API docs |
+| `python backend/check_gemini_quota.py` | Your Gemini key(s) respond |
+| http://localhost:5173 | App loads; sign up, then log in |
+| Record one answer | Scores + AI feedback appear in ~5–10 s (after the first-run download) |
+
+### Common setup problems
+
+| Symptom | Fix |
+|---------|-----|
+| Backend exits with `Supabase initialization failed` | Check `SUPABASE_URL` / keys in `backend/.env`; no quotes or spaces |
+| Sign-up works but login says "Email not confirmed" | Confirm via the email link, or turn off **Confirm email** in Supabase Auth |
+| Sessions/answers not saved | Schema not applied: re-run `final_schema.sql` on the project |
+| `ffmpeg not found` / audio conversion errors | Install FFmpeg and restart the terminal |
+| Grammar score always neutral | Java not installed (LanguageTool needs it) |
+| Gemini `400 API key not valid` or `403` | Key revoked, blocked or unrestricted (see Troubleshooting); create a new key in AI Studio |
+| Frontend calls fail with CORS errors | Add the frontend URL to `CORS_ORIGINS` and restart the backend |
 
 ---
 
@@ -190,7 +243,7 @@ LLM_API_KEY=your_api_key_here
 # Transcription (No API key needed)
 # ===========================================
 TRANSCRIPTION_PROVIDER=faster_whisper
-WHISPER_MODEL=base
+WHISPER_MODEL_SIZE=small
 
 # ===========================================
 # Supabase Database (Required for persistence)
