@@ -90,7 +90,8 @@ You also need:
 ### 2. Backend setup
 
 ```powershell
-cd "AI-Interview-Assistant"          # repo root
+git clone https://github.com/bleng0/Interview-Assistant.git
+cd Interview-Assistant               # repo root
 python -m venv venv
 .\venv\Scripts\Activate.ps1          # macOS/Linux: source venv/bin/activate
 python -m pip install --upgrade pip
